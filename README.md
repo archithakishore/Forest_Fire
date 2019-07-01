@@ -79,11 +79,27 @@ ggplot(data, aes(x = data$day, data$area)) + geom_boxplot(outlier.shape = NA) + 
 
 We see from the boxplot below that there are some outliers that may skew our results. These are removed, so that we are predicting burned areas of smaller to medium forest fires. This is reasonable, since those are the more frequently encountered ones in real-life scenarios as well, and the ones for which resource prioritization may matter more. We are left with 501 observations after this.
 
+```
+boxplot(data$area)
+```
+
 <img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-6-1.png" alt="hi" class="inline"/>
 
+```
+outlier_values <- boxplot.stats(data$area)$out
 
+# we decided to remove burnt areas more than 100 by doing this we remove only 11 major outliers from
+# the data set and are keeping the rest
+data = dplyr::filter(data, data$area < 100)
+boxplot(data$area)
+```
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-6-2.png" alt="hi" class="inline"/>
 
-
+```
+# removing months with 1 or 2 records to avoid prediction issues
+data <- data[!(data$month == "jan" | data$month == "nov" | data$month == "may"), ]
+```
+![Image](src)
 Syntax highlighted code block
 
 
@@ -99,7 +115,7 @@ Syntax highlighted code block
 
 **Bold** and _Italic_ and `Code` text
 
-[Link](url) and ![Image](src)
+[Link](url) and ![Image](https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-6-2.png)
 ```
 
 For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
