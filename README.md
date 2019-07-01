@@ -42,46 +42,48 @@ data <- read.csv(file = "forestfires.csv", stringsAsFactors = T)
 ```
 ggplot(data, aes(data$area)) + geom_histogram()
 ```
-[https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-2-1.png] 
-
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-2-1.png" alt="hi" class="inline"/>
+ 
 We can see that the data is heavily skewed towards small forest fires. There are 247 entries with area = 0, for incidents where the resulting burned area was < 100m2. A logarithmic transofrmation of area might be useful in this case, and we can add 1 to the target column first since ln(0) approaches negative infinity.
 
 Check correlation - there is some collinearity based on which we might drop features:
 ```
 corPlot(Filter(is.numeric, data))
 ```
+<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
 [https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-4-1.png]
 
 Day/month wise incidents:
 ```
 plot(data$day, col = "purple")
 ```
+<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
 https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-3.png
 
 ```
 plot(data$month, col = "purple")
 ```
+<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
 https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-4.png
 
 Day/Month wise area Burnt:
 ```
 ggplot(data, aes(x = data$month, data$area)) + geom_boxplot(outlier.shape = NA) + geom_jitter(col = "red") + theme_bw()
  ```
-https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-5.png
+ <img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-5.png" alt="hi" class="inline"/>
 
 ```
-ggplot(data, aes(x = data$day, data$area)) + geom_boxplot(outlier.shape = NA) + geom_jitter(col = "red") + 
-    theme_bw()
+ggplot(data, aes(x = data$day, data$area)) + geom_boxplot(outlier.shape = NA) + geom_jitter(col = "red") + theme_bw()
 ```
-
-https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-6.png
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-6.png" alt="hi" class="inline"/>
 
 ## Data Preparation
 # Outlier Detection
 
 We see from the boxplot below that there are some outliers that may skew our results. These are removed, so that we are predicting burned areas of smaller to medium forest fires. This is reasonable, since those are the more frequently encountered ones in real-life scenarios as well, and the ones for which resource prioritization may matter more. We are left with 501 observations after this.
 
-https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-6-1.png
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-6-1.png" alt="hi" class="inline"/>
+
 
 
 
