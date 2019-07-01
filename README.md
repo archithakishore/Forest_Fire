@@ -50,21 +50,18 @@ Check correlation - there is some collinearity based on which we might drop feat
 ```
 corPlot(Filter(is.numeric, data))
 ```
-<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
-[https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-4-1.png]
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-4-1.png" alt="hi" class="inline"/>
 
 Day/month wise incidents:
 ```
 plot(data$day, col = "purple")
 ```
-<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
-https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-3.png
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-3.png" alt="hi" class="inline"/>
 
 ```
 plot(data$month, col = "purple")
 ```
-<img src="images/Emoticons/cool.png" alt="hi" class="inline"/>
-https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-4.png
+<img src="https://github.com/archithakishore/Forest_Fire/blob/master/Images/figure-html/unnamed-chunk-3-4.png" alt="hi" class="inline"/>
 
 Day/Month wise area Burnt:
 ```
