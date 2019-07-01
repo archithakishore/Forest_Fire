@@ -1,0 +1,499 @@
+---
+title: "DSC5103 Final Project: Forest Fires"
+subtitle: 'Prediction of Burn Area using Meteorological Data'
+author: "Section A1 Group 10"
+date: "Oct 2018"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+    highlight: tango
+    theme: yeti
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+<!--
+comments must be put in an HTML comment form
+-->
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)  # set output width
+```
+
+```{r}
+# Section A1
+# Group 10
+# Members: 
+# Amit Prusty
+# Architha Kishore
+# Onni-Pekka Niemela
+# Param Mahesh Biyani
+# Spatika Narayanan
+```
+
+# Introduction
+We will be studying the Forest Fires Data Set from https://archive.ics.uci.edu/ml/datasets/forest+fires put together and studied by *Cortez, P., & Morais, A. D. J. R. (2007)* [1]. This dataset covers meteorological and spatio-temporal data for forest fires (between 2000 and 2003) in Portugal's Montesinho Natural Park, with 13 attributes each for 517 such incidents. Our target attribute from these 13 is 'area' - total burned area in hectares (ha). The corresponding weather data is that which is registered by sensors at the moment the fire was detected (or first broke out). We have: temp, RH (realtive humidity), wind (speed), rain (accumulated precipitation over the last 30 minutes). 
+
+&nbsp;
+
+We also have DMC, DC, ISI and FFMC are components of the Canadian Forest Fire Weather Index (FWI) System [2], which measures the effects of fuel moisture and wind on fire behaviour. These have been calculated using consecutive daily observations of temperature, relative humidity, wind speed, and 24-hour rainfall - i.e. these are time-lagged and not instantaneous values, unlike the four weather variables. Roughly, the higher these components, the more the expected severity of the fire.
+
+&nbsp;
+
+Spatio-temporal data includes the month and day of the week that the incident occurred, and X and Y co-ordinates of the incident with respect to the park. As noted in [1], smaller fires are much more frequent. This is the case in this dataset, as well as with incidences of wildfires around the world, making this a difficult regression problem.
+
+## Problem and Metric
+
+We work on the following regression problem:
+
+* Predicting the burned area of a forest fire, given the weather conditions and FWI components at the time the fire breaks out.
+    + In the future, this data can be monitored or obtained in real-time, and is non-costly. 
+    + This prediction can provide instant feedback to the appropriate diaster response teams.
+    + It could also be re-framed as a multi-class classification problem, by dividing the incidents based on severity - Small, Medium, Large - and predicting this, rather than the absoulute burned area.
+
+As this is a regression problem, our main evaluation metric is "test" (or validation) RMSE. 
+
+## Motivation
+The environmental damage, financial and infratstructure loss from forest fires (or wildfires) can be staggering. Reports from CoreLogic, a property and consumer information provider, estimate that the loss from the 2018 California Wildfires is between 15 and 19 billion USD [3]. With forest fires sweeping the globe and worsening forest fire seasons [4], there is need for a tool such as this to improve firefighting resource management and disaster response. For example, when there are simultaneous occurrences of wildfires, we would be able to prioritize and allocate resources appropriately: ground crew could respond to fires judged to be "smaller", with air support diverted to locations of larger fires.
+
+
+## Literature Review
+The frame of reference for our regression task is work by *Cortez, P., & Morais, A. D. J. R. (2007)*. They compared performance of SVM, NN and multiple linear regression and RF from the 'rminer' package, with the best performance from SVM using just the four weather variables - rain, wind, temperature and humidity. While this dataset hasn't been studied extensively, similar work in this domain has been done by  *?zbayoglu, A. M., & Bozer, R. (2012)* [5]. They predicted burned area in hectares, as well as the size-class of the fire as big, medium or small, using SVM and multi-layer perceptrons, with data from 7,920 forest fires in Turkey between 2000 and 2009. However, this dataset wasn't accessible to us. In addition to weather and meteorological data, they used geographic features like the type of trees and number of trees per unit area.
+
+# Exploratory Data Analysis
+We did some initial EDA and visualization to get a better idea of our next steps and the required data pre-processing.
+
+## Schema
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+library(tidyverse)
+library(psych)
+library(caretEnsemble)
+library(caret)
+library(corrplot)
+library(ModelMetrics)
+
+# load data
+data <- read.csv(file = "forestfires.csv", stringsAsFactors = T)
+summary(data)
+```
+
+
+## Distribution of Target Class
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+ggplot(data,aes(data$area)) + geom_histogram()
+
+```
+
+We can see that the data is heavily skewed towards small forest fires. There are 247 entries with area = 0, for incidents where the resulting burned area was < $100 m^2$. A logarithmic transofrmation of area might be useful in this case, and we can add 1 to the target column first since $ln(0)$ approaches negative infinity. 
+
+## Some Visualizations
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+# describe(data)
+
+#columns
+names(data)
+#numeric data
+names(Filter(is.numeric,data))
+#factor data
+names(Filter(is.factor,data))
+
+#check NAs
+sum(is.na(data))
+
+# check correlation - there is some collinearity based on which we might drop features
+corPlot(Filter(is.numeric,data))
+
+# visualize relation between target and major predictors
+pairs(dplyr::select(data,c('rain', 'wind', 'temp', 'RH', 'area', 'DC', 'ISI', 'FFMC')))
+
+# day/month wise incidents
+plot(data$day, col='purple')
+plot(data$month, col='purple')
+
+```
+
+There are more incidents on weekends - Friday/Sat/Sun, it might mean that campers vactioning might have caused/spotted fires.
+
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+# Day/Month wise area Burnt 
+ggplot(data, aes(x=data$month,data$area)) + geom_boxplot(outlier.shape=NA) + 
+  geom_jitter(col='red') + theme_bw()
+
+ggplot(data, aes(x=data$day,data$area)) + geom_boxplot(outlier.shape=NA) + 
+  geom_jitter(col='red') + theme_bw()
+```
+
+# Data Preparation
+
+## Outlier Detection
+We see from the boxplot below that there are some outliers that may skew our results. These are removed, so that we are predicting burned areas of smaller to medium forest fires. This is reasonable, since those are the more frequently encountered ones in real-life scenarios as well, and the ones for which resource prioritization may matter more. We are left with 501 observations after this.
+
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+boxplot(data$area)
+outlier_values <- boxplot.stats(data$area)$out
+
+# we decided to remove burnt areas more than 100
+# by doing this we remove only 11 major outliers from the data set and are keeping the rest
+data = dplyr::filter(data, data$area < 100)
+boxplot(data$area)
+
+# removing months with 1 or 2 records to avoid prediction issues
+data <- data[!(data$month=='jan' | data$month=='nov' | data$month=='may'),]
+```
+
+
+## Feature Selection and Normalization
+The 'X' and 'Y' attributes are coordinates in the 9x9 grid representing the area of Portugal's Montesinho Park. These coordinates are specific to this situation, and wouldn't generalize to prediction of burned area in other scenarios. These variables were also not found to be crucial to predicting the burned area.
+
+For SVM and k-NN, we need to use normalized data on the 0-1 scale, since these algorithms depend on distance. So for consistency and model comparison we will use normalized data for all models.
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+normalize_c = function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+denormalize <- function(x, min_x, max_x) {
+  return(x * (max_x - min_x) + min_x) 
+}
+
+# Storing original data to data0
+data0 <- dplyr::select(data, -c("X","Y"))
+
+# Xs - normalize all predictors
+data_norm <- data %>% mutate_at(names(Filter(is.numeric, data)), normalize_c) %>% dplyr::select(-c(X,Y))
+
+summary(data_norm)
+
+```
+
+## Train-Validation Split
+Next, we will prepare the training and test dataset.
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+set.seed(1234)
+# split training and test data 80/20
+train.index <- createDataPartition(data_norm$area, p = 0.8, list = FALSE)
+test.index <- -train.index
+
+```
+
+Separating the data for GBM use:
+```{r eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+library(xgboost)
+# convert data for xgboost - onehot encoding is automatically done 
+x.train <- model.matrix(area ~ ., data_norm[train.index, ])[, -11]
+y.train <- data_norm[train.index, "area"]
+
+dtrain <- xgb.DMatrix(data=x.train, label=y.train)
+
+x.test <- model.matrix(area ~ ., data_norm[test.index, ])[ ,-11]
+y.test <- data_norm[test.index, "area"]
+
+```
+
+# Modelling
+
+## Elastic Net
+We see that when using stepAIC, the temperature and wind features are selected.
+```{r glmnet, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+library(glmnetUtils)
+library(MASS)
+library(boot)
+
+model_lm = glm(area ~ .,
+               data=data_norm[train.index,], family = 'gaussian')
+summary(model_lm)
+glm.diag.plots(model_lm)
+
+# denormalize prediction
+test_pred_area_lm <- denormalize(predict(model_lm, data_norm[test.index,]),min(data$area),max(data$area))
+rmse(test_pred_area_lm, data[test.index,'area']) 
+
+##############
+## STEP AIC ##
+##############
+model_step <- stepAIC(model_lm, direction = 'both')
+
+test_pred_area_step <- denormalize(predict(model_step, newdata = data_norm[test.index,]),
+                                   min(data$area),max(data$area))
+rmse(test_pred_area_step, data[test.index,'area'])
+
+###########
+## RIDGE ##
+###########
+model_ridge = cv.glmnet(area~.,
+               data=data_norm[train.index,], nfolds=10, use.model.frame = T, alpha = 0)
+
+lam_ridge = model_ridge$lambda.min
+
+# test set predictions
+test_pred_area_ridge = denormalize(predict(model_ridge, s=lam_ridge, data_norm[test.index,],
+                                           exact=TRUE), min(data$area),max(data$area))
+ridge.rmse <- rmse(test_pred_area_ridge, data[test.index,'area'])  
+
+###########
+## LASSO ##
+###########
+
+model_lasso = cv.glmnet(area~.,
+               data=data_norm[train.index,], nfolds=10, use.model.frame = T, alpha = 1)
+
+lam_lasso = model_lasso$lambda.min
+
+
+# test set predictions 
+test_pred_area_lasso = denormalize(predict(model_lasso, s=lam_lasso,  data_norm[test.index,], exact=TRUE),
+                           min(data$area),max(data$area)) 
+rmse(test_pred_area_lasso, data[test.index,'area'])
+
+```
+
+## k-Nearest Neighbours Regression
+```{r knn, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+library(onehot)
+library(class)
+library(FNN)
+library(Metrics)
+
+# Encode factors to dummies for KNN
+data_norm$month = as.factor(data_norm$month)
+data_norm$day = as.factor(data_norm$day)
+
+encoder = onehot(data_norm, max_levels = 100)
+knn_data = as.data.frame(predict(encoder, data_norm))
+
+#Separating train and test for KNN
+train_knn = knn_data[train.index,]
+test_knn = knn_data[-train.index,]
+
+#Finding out optimal K
+ks = 1:30
+mse.train = numeric(length=length(ks))
+mse.test  = numeric(length=length(ks))
+
+for (i in seq(along=ks)) {
+  model.train = knn.reg(train_knn, train_knn, train_knn$area, k=ks[i])
+  model.test  = knn.reg(train_knn, test_knn, train_knn$area, k=ks[i])
+  mse.train[i] = mean((train_knn$area - model.train$pred)^2)
+  mse.test[i] = mean((test_knn$area - model.test$pred)^2)
+}
+
+k.opt = ks[which.min(mse.test)]
+
+#KNN regression
+knn_pred = knn.reg(train_knn, test_knn, train_knn$area, k=k.opt)
+
+knn_rmse = rmse(denormalize(knn_pred$pred,min(data$area),max(data$area)), data[test.index,'area'])
+knn_rmse # 7.45
+```
+
+
+## Support Vector Machines
+For both k-NN and SVM we first tried predicting log_area, which turned out yielding generally low accuracies. We believe this is due to k-NN and SVM being distance depended algorithms, and so ran the models without logarithmic transformation in the end.
+
+For SVM, we also tried polynomial and sigmoid kernels, but came to conclusion that linear and RBF kernels outperform them with this data. Out of these models, k-NN provides the lowest RMSE, with both SVM radial and linear kernels close behind. 
+```{r svm, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+library(e1071)
+
+#Linear kernel
+svm_linear = svm(area ~ ., data = data_norm[train.index,], kernel = 'linear', cost = 32, gamma = 0.03846154, epsilon = 0.4)
+pred.linear = predict(svm_linear, data_norm[test.index,])
+
+pred.linear.denormalized = denormalize(pred.linear,min(data$area), max(data$area))
+svm_lin_rmse = rmse(pred.linear.denormalized, data[test.index,'area'])
+svm_lin_rmse 
+
+#RBF kernel
+svm_rbf = svm(area ~ ., data=data_norm[train.index,], kernel = 'radial', cost = 4, gamma = 0.03846154, epsilon = 0.4)
+pred.rbf = predict(svm_rbf, data_norm[test.index,])
+
+pred.rbf.denormalized = denormalize(pred.rbf,min(data$area),max(data$area))
+svm_rbf_rmse = rmse(pred.rbf.denormalized, data[test.index,'area'])
+svm_rbf_rmse 
+
+```
+
+
+## Random Forest
+For random forest, too, though using the log transformed area was thought to show better results, there wasn't much change to the performance (test RMSE). This could be because the extreme outliers were anyway removed, leading to more symmetry in the data without the transform.
+
+```{r randomforest, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+library("randomForest")
+
+# tune random forest (mtry) manually
+mse.rfs <- rep(0, 10) # repeat '0' 10 times
+
+for(m in 1:10){
+    set.seed(12345)
+    rf <- randomForest(area ~ ., data = data_norm, subset = train.index, ntree=501, mtry=m)
+    mse.rfs[m] <- rf$mse[501]
+}
+
+plot(1:10, mse.rfs, type = "b", xlab="mtry", ylab="OOB Error")
+
+# fit a random forest model
+set.seed(12345)
+model.rf <- randomForest(area ~ ., data = data_norm, subset=train.index, ntree=501, mtry=1)
+plot(model.rf)
+
+# predict on train set
+pred.rf.train <- predict(model.rf, newdata=data_norm[train.index,]) 
+
+# predict on test set
+pred.rf <- predict(model.rf, newdata=data_norm[test.index,]) 
+
+# inverse log - 1
+pred.rf.train <- denormalize(pred.rf.train, min(data$area), max(data$area))
+pred.rf <- denormalize(pred.rf, min(data$area), max(data$area))
+
+# rmse in train and test data
+rmse(pred.rf.train, data[train.index,'area']) 
+rf.rmse <- rmse(pred.rf, data[test.index,'area'])
+```
+
+### RF Variable Importance Plot
+We see that temp, RH (relative humidity), and some of the fire weather indices - DC, DMC and ISI are found to be important in prediction of the burned area. This is consistent with the findings from [1].
+```{r rf varimp, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+# variable importance
+importance(model.rf) 
+varImpPlot(model.rf) 
+
+```
+
+## XGBoost
+```{r xgboost, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+# fit a boosting model with optimal parameters - from running 9-xgboost_tuning.R with dtrain as input
+max_depth.opt <- 2
+eta.opt <- 0.01
+subsample.opt <- 1
+colsample.opt <- 1
+nrounds.opt <- 260
+
+set.seed(12345)
+model.xgb <- xgboost(data=dtrain, objective="reg:linear", nrounds=nrounds.opt, max_depth = max_depth.opt, eta=eta.opt, subsample=subsample.opt, colsample_bytree=colsample.opt , verbose=0)
+
+# train predict 
+pred.xgb.train <- predict(model.xgb, x.train)
+
+# predict
+pred.xgb <- predict(model.xgb, x.test)
+
+# inverse log
+pred.xgb <- denormalize(pred.xgb,min(data$area),max(data$area))
+pred.xgb.train <- denormalize(pred.xgb.train,min(data$area),max(data$area))
+
+# rmse
+rmse(pred.xgb.train, data[train.index,'area']) 
+xgb.rmse <- rmse(pred.xgb, data[test.index,'area']) 
+```
+
+### XGBoost Variable Importance Plot
+For this model, too, temp, RH and DC are important. Additionally, wind and FFMC are found to be important in prediction of the burned area. This is consistent with the feature selection from stepAIC and similar to the variable importance plot of our random forest model above.
+```{r xgb varimp, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE}
+
+importance_matrix <- xgb.importance(model = model.xgb, feature_names = colnames(x.train))
+importance_matrix
+xgb.plot.importance(importance_matrix=importance_matrix)
+
+```
+
+## Ensemble 
+Using test RMSE as our performance metric, we observe that both k-NN and SVM (linear kernel) give us good results as compared to the other models. Hence, we stack the above two models. We find that the combination of these also gives a similar result.
+```{r ensemble, eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE, warning=FALSE}
+
+set.seed(17)
+folds <- createFolds(data_norm[train.index,"area"], 5)
+
+control <- trainControl(method='repeatedcv', number=5, repeats=2, index=folds, search = 'grid', savePredictions = 'final')
+
+algos <- c('knn','svmLinear')
+
+models <- caretList(area~., data=data_norm[train.index,], metric = 'RMSE', trControl=control, methodList=algos)
+
+models_perf <- resamples(models)
+modelCor(models_perf)
+
+stack_control <- trainControl(method = 'repeatedcv', number = 2, repeats = 5)
+
+stack_lm <- caretStack(models, method='lm',  trControl=stack_control)
+
+pred_stack <- predict(stack_lm, data_norm[test.index,])
+
+## RMSE of Stacking Model
+pred_stack_denormalized = denormalize(pred_stack,min(data$area), max(data$area))
+stack_accuracy <- rmse(pred_stack_denormalized, data[test.index,'area'])
+stack_accuracy # 13.89
+
+## Manual Stacking of KNN, SVM Linear
+knn_pred_train = knn.reg(train_knn, train_knn, train_knn$area, k=k.opt)
+pred.linear.train = predict(svm_linear, data_norm[train.index,])
+
+
+stack_train_data <- cbind.data.frame(knn_pred_train$pred,pred.linear.train,data_norm[train.index,'area'])
+stack_test_data <- cbind.data.frame(knn_pred$pred,pred.linear,data_norm[test.index,'area'])
+
+names(stack_train_data) <- c("KNN","SVMLinear","area")
+names(stack_test_data) <- c("KNN","SVMLinear","area")
+
+manual_stack_model <- glm(area ~ ., data = stack_train_data)
+
+## Predicting test on the Manual Stack
+
+pred_stack_manual <- predict(manual_stack_model, stack_test_data)
+
+## RMSE of Manual Stack Model
+pred_stack_manual_denormalized = denormalize(pred_stack_manual, min(data$area), max(data$area))
+manual_stack_rmse = rmse(pred_stack_manual_denormalized, data[test.index,'area'])
+manual_stack_rmse 
+
+```
+
+
+# Results and Model Comparison
+* Temperature, wind and relative humidity were both found to be important predictors; this was common to the linear family (stepAIC) and for RF and XGBoost (using the variable importance plots above). These findings are in line with results in [1].
+* However, we additionally found DMC (Duff Moisture Code) and DC (Drought Code) to be important predictors - these indicate the moisture content in moderate duff layers (decomposing organic material) and the seasonal drought effects on forest fuels respectively. But in [1], neither of these were used in the final models.
+* The SVM models shows decent performance in terms of RMSE, but have lower interpretability compared to models from tree or linear families.
+* The best results are using k-NN, and the stacked ensemble too. However, this is because the stacked ensemble defaults to results of k-NN. We may get significant improvements from a stacked model if we combine k-NN with another model of similar RMSE.
+
+```{r results table, results = 'asis', eval=TRUE, echo=TRUE, message=FALSE, tidy=TRUE, warning=FALSE}
+
+library(knitr)
+
+models <- c("Ridge", "k-NN", "SVM Linear", "RF", "XGBoost", "Manual Stacking")
+rmses <- c(ridge.rmse, knn_rmse, svm_lin_rmse, rf.rmse, xgb.rmse, manual_stack_rmse)
+  
+final_results <- data.frame("Model" = models, "Test RMSE" = rmses)
+
+kable(final_results, caption = "Model Comparison")
+```
+
+
+# Conclusion and Discussion
+* Due to the small size of the dataset and the skew towards small forest fires, the results may not be as accurate as possible.
+* One way to deal with this is by labeling the datapoints by their severity (small, medium, big, or small/others) and considering it as a classification problem. This would still serve the purpose of prioritizing resource allocation. Sampling techniques like over- or under-sampling could also then be applied to the training set. 
+* For pro-active measures, weather forecasts could be used instead to predict the occurrence and burned area of forest fires in the future.
+* RMSE is more sensitive to outliers. Using another metric, like Mean Absolute Deviance (MAD) may be better for this dataset and problem.
+* Though taking log transformations may give better results for regression problems, it didn't have much impact in this case - possibly because we removed some of the extreme outliers first.
+
+# References
+
+1. Cortez, P., & Morais, A. D. J. R. (2007). A data mining approach to predict forest fires using meteorological data. Available at: http://www3.dsi.uminho.pt/pcortez/fires.pdf
+
+2. Government of Canada. (2017, September 17). Canadian Wildland Fire Information System. Retrieved November 29, 2018 from http://cwfis.cfs.nrcan.gc.ca/background/summary/fwi
+
+3. Insurance Journal. (2018, November 27). Report Puts Losses from California Wildfires at \$15B to $19B. Retrieved November 29, 2018, from https://www.insurancejournal.com/news/west/2018/11/27/510160.htm
+
+4. Vidal, J. (2018, July 28). Fire, Fire Everywhere: The 2018 Global Wildfire Season Is Already Disastrous. Retrieved from https://www.huffingtonpost.in/entry/fire-fire-everywhere-the-2018-global-wildfire-season-is-already-disastrous_us_5b5a1271e4b0de86f494ed28
+
+5. Ozbayoglu, A. M., & Bozer, R. (2012). Estimation of the burned area in forest fires using computational intelligence techniques. Procedia Computer Science, 12, 282-287.
+
